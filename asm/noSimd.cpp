@@ -4,7 +4,8 @@ using namespace std;
 
 int main()
 {
-	short a[8], b[8];
+	alignas(16) short a[8];
+	alignas(16) short b[8];
 	for(int i = 0; i < 8; ++i){
 		a[i] = i;
 		b[i] = 8 - i;
