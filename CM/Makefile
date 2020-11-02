@@ -1,5 +1,5 @@
 CXX = g++
-CXFLAGS = -std=c++11 -O2
+CXFLAGS = -std=c++11 -O2 -mavx2
 deps = BOBHash32.h cm_clock.h param.h
 obj = cm_clock.o test_CM.o BOBHash32.o param.o
 prom = CM
