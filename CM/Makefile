@@ -18,7 +18,10 @@ cm_clock.o: cm_clock.cpp $(deps)
 
 test_CM.o: test_CM.cpp $(deps)
 	$(CXX) -c test_CM.cpp $(CXFLAGS)
- 
+
+testSIMD: testSIMD.cpp
+	$(CXX) -o testSIMD testSIMD.cpp $(CXFLAGS)
+
 clean:
 	rm -rf $(obj) $(prom)
 
