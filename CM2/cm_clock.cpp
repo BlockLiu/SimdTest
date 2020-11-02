@@ -54,6 +54,7 @@ void splitRange(ClockUpdateThreadParam *param, pair<int,int> *A, int &nA, pair<i
 /* substract 'val' from range[beg, end) in clocks
  * if clocks[i] < val, clear counters[i] */
 void updateRangeSub_simd(Counter_t *counters, Clock_t *clocks, int beg, int end, int val){
+    // printf("beg=%d, end=%d\n", beg, end);
     /* ensure address alignment */
     int alignment = 8 / sizeof(Clock_t);        // aligned by 8byte (64-bit)
     int idx = beg;
@@ -305,14 +306,15 @@ void cm_sketch::updateClock()
 
 void cm_sketch::updateClockSlow(){
     static int __lastUpdateIdx = 0;
-    for(int i = 0; i < clockUpdateLen; ++i)
-    {
-        if(clock[__lastUpdateIdx] == 0)
-            counters[__lastUpdateIdx] = 0;
-        else
-            clock[__lastUpdateIdx]--;
-        __lastUpdateIdx = (__lastUpdateIdx + 1) % width;
+    int beg = __lastUpdateIdx;
+    int end = std::min(beg + clockUpdateLen, width);
+    updateRangeSub(counters, clock, beg, end, 1);
+    if(clockUpdateLen > end - beg){
+        end = clockUpdateLen - (end - beg);
+        beg = 0;
+        updateRangeSub(counters, clock, beg, end, 1);
     }
+    __lastUpdateIdx = end;
 }
 
 double cm_sketch::calARE(const unordered_map<string,int> &RealFreq){
