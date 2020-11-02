@@ -41,18 +41,29 @@ int main(int argc, char *argv[])
     int threadNum = atoi(argv[1]);
     cm_sketch *cm = new cm_sketch(wSz, d, width, clockUpdateLen, threadNum);
 
-    for(int iCase = 0; iCase < 5; ++iCase){
+    printf("********************Slow*****************\n");
+    for(int iCase = 0; iCase < 1; ++iCase){
         printf("iCase=%d:\n", iCase);
         auto t1 = steady_clock::now();
         for(int i = 0; i < test_cycle; ++i)
-            cm->updateClock();
-
+            cm->updateClockSlow();
         auto t2 = steady_clock::now();
         auto t3 = duration_cast<microseconds>(t2 - t1).count();
         cout << "(multi-thread): duration: " << 1.0 * t3 / test_cycle << " microseconds per cycle" << endl;
         cout << "(multi-thread): throughput: " << 1 / (1.0 * t3 / test_cycle) << " MIPs\n" << endl;
     }
 
+    printf("********************multi-thread & SIMD*****************\n");
+    for(int iCase = 0; iCase < 3; ++iCase){
+        printf("iCase=%d:\n", iCase);
+        auto t1 = steady_clock::now();
+        for(int i = 0; i < test_cycle; ++i)
+            cm->updateClock();
+        auto t2 = steady_clock::now();
+        auto t3 = duration_cast<microseconds>(t2 - t1).count();
+        cout << "(multi-thread): duration: " << 1.0 * t3 / test_cycle << " microseconds per cycle" << endl;
+        cout << "(multi-thread): throughput: " << 1 / (1.0 * t3 / test_cycle) << " MIPs\n" << endl;
+    }
 
     // auto t4 = steady_clock::now();
     // for(int i = 0; i < test_cycle; ++i)
