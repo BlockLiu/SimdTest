@@ -10,6 +10,13 @@ using std::pair;
 #include <sys/sysinfo.h> 
 #endif
 
+#include <x86intrin.h>
+#include <xmmintrin.h> // SSE
+#include <emmintrin.h> // SSE2
+#include <pmmintrin.h> // SSE3
+#include <tmmintrin.h> // SSSE3
+#include <immintrin.h> // AVX
+
 /* nA is the number of pairs in A, so is nB
  * A: the range where numbers should sub more
  * B: the range where numbers should sub less */
@@ -42,6 +49,60 @@ void splitRange(ClockUpdateThreadParam *param, pair<int,int> *A, int &nA, pair<i
     }
 
     param->lastUpdateIdx = (param->lastUpdateIdx + len) % param->width;
+}
+
+/* substract 'val' from range[beg, end) in clocks
+ * if clocks[i] < val, clear counters[i] */
+void updateRangeSub_simd(Counter_t *counters, Clock_t *clocks, int beg, int end, int val){
+    /* ensure address alignment */
+    int alignment = 8 / sizeof(Clock_t);        // aligned by 8byte (64-bit)
+    int idx = beg;
+    while(idx % alignment){
+        if(clocks[idx] < val){
+            clocks[idx] = 0;
+            counters[idx] = 0;
+        }
+        else clocks[idx] -= val;
+        idx++;
+    }
+
+    /* use SIMD */
+    __m256i _subVal =  _mm256_set1_epi8(char(val));             // val
+    __m256i _subValMinusOne =  _mm256_set1_epi8(char(val - 1)); // val-1
+    while(idx +32 <= end){
+        __m256i clock1 = _mm256_loadu_si256((__m256i*)(&clocks[idx]));   // load clock contents
+        __m256i clock2 = _mm256_subs_epu8(clock1, _subVal);
+        _mm256_storeu_si256((__m256i*)(&clocks[idx]), clock2);      // update clock
+
+        __m256i x = _mm256_max_epu8(clock1, _subValMinusOne);   // find out those clock < subVal, and set them to subVal-1
+        __m256i eq = _mm256_cmpeq_epi8(x, _subValMinusOne);     // find out those subVal-1
+
+        __m128i low128 = _mm256_extracti128_si256(eq, 0);       // low 128 bit of eq
+        __m128i high128 = _mm256_extracti128_si256(eq, 1);       // high 128 bit of eq
+        __m256i low = _mm256_cvtepi8_epi16(low128); 
+        __m256i high = _mm256_cvtepi8_epi16(high128);             // convert 0xFF to 0xFFFF, and 0x00 to 0x0000
+
+        __m256i counter_low = _mm256_loadu_si256((__m256i*)(&counters[idx]));          
+        __m256i counter_high = _mm256_loadu_si256((__m256i*)(&counters[idx + 16]));  // load counters
+
+        __m256i resLow = _mm256_andnot_si256(low, counter_low);
+        __m256i resHigh = _mm256_andnot_si256(high, counter_high);  // (!high) bitwise-and counter_high
+
+        _mm256_storeu_si256((__m256i*)(&counters[idx]), resLow);
+        _mm256_storeu_si256((__m256i*)(&counters[idx + 16]), resHigh);  // write back to counters
+    
+        idx += 32;
+    }
+
+    /* process the left clocks and counters */
+    while(idx < end){
+        if(clocks[idx] < val){
+            clocks[idx] = 0;
+            counters[idx] = 0;
+        }
+        else clocks[idx] -= val;
+        idx++;
+    }
 }
 
 /* substract 'val' from range[beg, end) in clocks
@@ -95,11 +156,13 @@ void* updateClockArray(void* arg){
         //     updateRangeSub(sketch->counters, sketch->clock, param->begin + B[i].first, param->begin + B[i].second, subB);
         int beg = param->lastUpdateIdx;
         int end = std::min(param->width, beg + param->updateLen);
-        updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
+        updateRangeSub_simd(sketch->counters, sketch->clock, beg, end, 1);
+        // updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
         if(end - beg < param->updateLen){
             beg = 0;
             end = param->updateLen - (end - beg);
-            updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
+            updateRangeSub_simd(sketch->counters, sketch->clock, beg, end, 1);
+            // updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
         }
             
         /* notify main thread: update finished */
