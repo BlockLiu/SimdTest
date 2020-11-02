@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// #define _BIND_THREAD_WITH_CPU_  // if manually bind thread to cpu cores
 #define KEY_LENGTH 32
 typedef uint16_t Counter_t;     // counter type
 typedef uint8_t Clock_t;        // 8-bit

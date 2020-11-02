@@ -4,12 +4,6 @@
 #include "cm_clock.h"
 using std::pair;
 
-#ifdef _BIND_THREAD_WITH_CPU_
-#include <sched.h>  
-#include <sys/types.h>  
-// #include <sys/sysinfo.h> 
-#endif
-
 #include <x86intrin.h>
 #include <xmmintrin.h> // SSE
 #include <emmintrin.h> // SSE2
@@ -124,14 +118,6 @@ void* updateClockArray(void* arg){
     int id = int(uintptr_t(args[1]));               // id of thread
     ClockUpdateThreadParam *param = &sketch->threadParams[id];  // get params of this thread
 
-// #ifdef _BIND_THREAD_WITH_CPU_
-// 	cpu_set_t mask;
-// 	CPU_ZERO(&mask);
-// 	CPU_SET(id + 1, &mask);
-// 	if(sched_setaffinity(0, sizeof(cpu_set_t), &mask) == -1){
-// 		printf("Warning: failed to bind %d-th thread to %d-th CPU core\n", id, id + 1);
-// 	}
-// #endif
     printf("updateClockArray: successfully create thread-%d\n", id);
     pthread_mutex_lock(&sketch->mutex_updateCond);
     sketch->busyThreadCnt--;
@@ -146,27 +132,18 @@ void* updateClockArray(void* arg){
             pthread_cond_wait(&param->cond, &param->mutex_cond);
         pthread_mutex_unlock(&param->mutex_cond);
 
-        /* update the clock arrays (no SIMD) */
-        // int subA = param->updateLen / param->width + 1, subB = param->updateLen / param->width;
-        // pair<int,int> A[2], B[2];
-        // int nA, nB;
-        // splitRange(param, A, nA, B, nB);
-        // if(subB)
-        //     for(int i = 0; i < nA; ++i)
-        //         updateRangeSub(sketch->counters, sketch->clock, param->begin + A[i].first, param->begin + A[i].second, subA);
-        // for(int i = 0; i < nB; ++i)
-        //     updateRangeSub(sketch->counters, sketch->clock, param->begin + B[i].first, param->begin + B[i].second, subB);
-        int beg = param->lastUpdateIdx;
-        int end = std::min(param->width, beg + param->updateLen);
-        // updateRangeSub_simd(sketch->counters, sketch->clock, beg, end, 1);
-        updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
-        if(end - beg < param->updateLen){
-            beg = 0;
-            end = param->updateLen - (end - beg);
-            // updateRangeSub_simd(sketch->counters, sketch->clock, beg, end, 1);
-            updateRangeSub(sketch->counters, sketch->clock, beg, end, 1);
-        }
-        param->lastUpdateIdx = (param->lastUpdateIdx + param->updateLen) % param->width;
+        /* processing */
+        // int beg = param->lastUpdateIdx;
+        // int end = std::min(param->width, beg + param->updateLen);
+        // updateRangeSub_simd(sketch->counters, sketch->clock, param->begin + beg, param->begin + end, 1);
+        // // updateRangeSub(sketch->counters, sketch->clock, param->begin + beg, param->begin + end, 1);
+        // if(end - beg < param->updateLen){
+        //     end = param->updateLen - (end - beg);
+        //     beg = 0;
+        //     updateRangeSub_simd(sketch->counters, sketch->clock, param->begin + beg, param->begin + end, 1);
+        //     // updateRangeSub(sketch->counters, sketch->clock, param->begin + beg, param->begin + end, 1);
+        // }
+        // param->lastUpdateIdx = (param->lastUpdateIdx + param->updateLen) % param->width;
             
         /* notify main thread: update finished */
         pthread_mutex_lock(&sketch->mutex_updateCond);
@@ -195,55 +172,55 @@ cm_sketch::cm_sketch(int _wSz, int _d, int _width, int _clockUpdateLen, int _thr
         printf("cm_sketch::cm_sketch: successfully allocate memory\n");
    
     /* create one thread for each array */
-    // busyThreadCnt = threadNum;
-    // pthread_cond_init(&updateCond, NULL);
-    // pthread_mutex_init(&mutex_updateCond, NULL);        // this are for thread synchronization
+    busyThreadCnt = threadNum;
+    pthread_cond_init(&updateCond, NULL);
+    pthread_mutex_init(&mutex_updateCond, NULL);        // this are for thread synchronization
 
-    // assert((width % threadNum == 0) && (clockUpdateLen % threadNum == 0));
-    // int __updateLen = clockUpdateLen / threadNum;   
-    // int __width = width / threadNum;
-    // threadParams = new ClockUpdateThreadParam[threadNum];   // initialize threadParam
-    // for(int i = 0; i < threadNum; ++i){
-    //     int __begin = __width * i;       
-    //     threadParams[i].setParams(__begin, __width, __updateLen);
-    // }
+    assert((width % threadNum == 0) && (clockUpdateLen % threadNum == 0));
+    int __updateLen = clockUpdateLen / threadNum;   
+    int __width = width / threadNum;
+    threadParams = new ClockUpdateThreadParam[threadNum];   // initialize threadParam
+    for(int i = 0; i < threadNum; ++i){
+        int __begin = __width * i;       
+        threadParams[i].setParams(__begin, __width, __updateLen);
+    }
 
-    // void* *args = new void*[2 * threadNum];
-    // for(int i = 0; i < threadNum; ++i){
-    //     args[2 * i] = (void*)this;
-    //     args[2 * i + 1] = (void*)(uintptr_t)i;
-    //     if(pthread_create(&threadParams[i].tid, NULL, updateClockArray, &args[2*i])){
-    //         fprintf(stderr, "cm_sketch::cm_sketch: failed to create thread-%d\n", i);
-    //         exit(EXIT_FAILURE);
-    //     }
-    // }
+    void* *args = new void*[2 * threadNum];
+    for(int i = 0; i < threadNum; ++i){
+        args[2 * i] = (void*)this;
+        args[2 * i + 1] = (void*)(uintptr_t)i;
+        if(pthread_create(&threadParams[i].tid, NULL, updateClockArray, &args[2*i])){
+            fprintf(stderr, "cm_sketch::cm_sketch: failed to create thread-%d\n", i);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     /* wait for all thread created */
-    // pthread_mutex_lock(&mutex_updateCond);
-    // while(busyThreadCnt){
-    //     pthread_cond_wait(&updateCond, &mutex_updateCond);
-    // }
-    // pthread_mutex_unlock(&mutex_updateCond);
-    // delete[] args;
+    pthread_mutex_lock(&mutex_updateCond);
+    while(busyThreadCnt){
+        pthread_cond_wait(&updateCond, &mutex_updateCond);
+    }
+    pthread_mutex_unlock(&mutex_updateCond);
+    delete[] args;
     if(DEBUG)
         printf("cm_sketch::cm_sketch: successfully create threads\n");
 }
 
 cm_sketch::~cm_sketch()
 {
-    // for(int i = 0; i < threadNum; ++i)
-    //     if(pthread_cancel(threadParams[i].tid)){
-    //         fprintf(stderr, "cm_sketch::~cm_sketch: failed to cancel thread-%d\n", i);
-    //         exit(EXIT_FAILURE);
-    //     }
-    // for(int i = 0; i < threadNum; ++i)
-    //     if(pthread_join(threadParams[i].tid, NULL)){
-    //         fprintf(stderr, "cm_sketch::~cm_sketch: failed to join thread-%d\n", i);
-    //         exit(EXIT_FAILURE);
-    //     }
-    // delete[] threadParams;
-    // pthread_cond_destroy(&updateCond);
-    // pthread_mutex_destroy(&mutex_updateCond);
+    for(int i = 0; i < threadNum; ++i)
+        if(pthread_cancel(threadParams[i].tid)){
+            fprintf(stderr, "cm_sketch::~cm_sketch: failed to cancel thread-%d\n", i);
+            exit(EXIT_FAILURE);
+        }
+    for(int i = 0; i < threadNum; ++i)
+        if(pthread_join(threadParams[i].tid, NULL)){
+            fprintf(stderr, "cm_sketch::~cm_sketch: failed to join thread-%d\n", i);
+            exit(EXIT_FAILURE);
+        }
+    delete[] threadParams;
+    pthread_cond_destroy(&updateCond);
+    pthread_mutex_destroy(&mutex_updateCond);
     if(DEBUG)
         printf("cm_sketch::~cm_sketch: successfully cancel all threads\n");
 
@@ -279,29 +256,30 @@ int cm_sketch::query(const char *key)
 
 void cm_sketch::updateClock()
 {
-    // busyThreadCnt = threadNum;
-    // for(int i = 0; i < threadNum; ++i){
-    //     pthread_mutex_lock(&threadParams[i].mutex_cond);
-    //     threadParams[i].haveJob = true;
-    //     pthread_cond_signal(&threadParams[i].cond);
-    //     pthread_mutex_unlock(&threadParams[i].mutex_cond);
-    // }
-
-    // pthread_mutex_lock(&mutex_updateCond);
-    // while(busyThreadCnt){
-    //     pthread_cond_wait(&updateCond, &mutex_updateCond);
-    // }
-    // pthread_mutex_unlock(&mutex_updateCond);
-    static int __lastUpdateIdx = 0;
-    int beg = __lastUpdateIdx;
-    int end = std::min(beg + clockUpdateLen, width);
-    updateRangeSub_simd(counters, clock, beg, end, 1);
-    if(clockUpdateLen > end - beg){
-        end = clockUpdateLen - (end - beg);
-        beg = 0;
-        updateRangeSub_simd(counters, clock, beg, end, 1);
+    busyThreadCnt = threadNum;
+    for(int i = 0; i < threadNum; ++i){
+        pthread_mutex_lock(&threadParams[i].mutex_cond);
+        threadParams[i].haveJob = true;
+        pthread_cond_signal(&threadParams[i].cond);
+        pthread_mutex_unlock(&threadParams[i].mutex_cond);
     }
-    __lastUpdateIdx = end;
+
+    pthread_mutex_lock(&mutex_updateCond);
+    while(busyThreadCnt){
+        pthread_cond_wait(&updateCond, &mutex_updateCond);
+    }
+    pthread_mutex_unlock(&mutex_updateCond);
+
+    // static int __lastUpdateIdx = 0;
+    // int beg = __lastUpdateIdx;
+    // int end = std::min(beg + clockUpdateLen, width);
+    // updateRangeSub_simd(counters, clock, beg, end, 1);
+    // if(clockUpdateLen > end - beg){
+    //     end = clockUpdateLen - (end - beg);
+    //     beg = 0;
+    //     updateRangeSub_simd(counters, clock, beg, end, 1);
+    // }
+    // __lastUpdateIdx = end;
 }
 
 void cm_sketch::updateClockSlow(){

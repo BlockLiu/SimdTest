@@ -10,27 +10,10 @@
 using namespace std;
 using namespace std::chrono;
 
-// #ifdef _BIND_THREAD_WITH_CPU_
-// #include <sched.h>  
-// #include <sys/types.h>  
-// #include <sys/sysinfo.h> 
-// #endif
-
 #define test_cycle 10000
 
 int main(int argc, char *argv[])
 {
-// #ifdef _BIND_THREAD_WITH_CPU_
-// 	cpu_set_t mask;
-// 	CPU_ZERO(&mask);
-// 	CPU_SET(0, &mask);
-// 	if(sched_setaffinity(0, sizeof(cpu_set_t), &mask) == -1){
-// 		printf("Warning: failed to bind %d-th thread to %d-th CPU core\n", 0, 0);
-// 	}else{
-//         printf("successfully bind %d-th thread to %d-th CPU core\n", 0, 0);
-//     }
-// #endif
-
     assert(argc > 1);
     // cm_sketch(int _wSz, int _d, int _width);
     int width = 162000;
